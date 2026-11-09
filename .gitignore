@@ -1,0 +1,21 @@
+# build output
+MemoryOptimizer.exe
+*.pdb
+tools/IconBuilder.exe
+
+# runtime files
+settings.ini
+MemoryOptimizer.log
+MemoryOptimizer.log.old
+debug.log
+cli-result.txt
+cli-*.txt
+
+# local shortcuts / screenshots / temp
+*.lnk
+preview*.png
+*.error.txt
+
+# OS
+Thumbs.db
+desktop.ini
