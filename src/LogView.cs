@@ -34,6 +34,8 @@ namespace MemoryOptimizer
         private int _scrollBack;
         private int _lineHeight = 20;
         private float _scale;
+        private ToolStripMenuItem _copyItem;
+        private ToolStripMenuItem _clearItem;
 
         public LogView()
         {
@@ -44,9 +46,19 @@ namespace MemoryOptimizer
             TabStop = true;
 
             _menu = new ContextMenuStrip();
-            _menu.Items.Add("复制全部日志", null, delegate { CopyAll(); });
-            _menu.Items.Add("清空日志", null, delegate { Clear(); });
+            _copyItem = new ToolStripMenuItem(Loc.T("log.copy"), null, delegate { CopyAll(); });
+            _clearItem = new ToolStripMenuItem(Loc.T("log.clear"), null, delegate { Clear(); });
+            _menu.Items.Add(_copyItem);
+            _menu.Items.Add(_clearItem);
             ContextMenuStrip = _menu;
+        }
+
+        /// <summary>语言切换后刷新菜单文字。</summary>
+        public void ApplyLanguage()
+        {
+            if (_copyItem != null) _copyItem.Text = Loc.T("log.copy");
+            if (_clearItem != null) _clearItem.Text = Loc.T("log.clear");
+            Invalidate();
         }
 
         public void Append(string message, LogLevel level)
@@ -131,7 +143,7 @@ namespace MemoryOptimizer
 
             if (_lines.Count == 0)
             {
-                TextRenderer.DrawText(graphics, "暂无日志", Font, ClientRectangle, Theme.TextMuted,
+                TextRenderer.DrawText(graphics, Loc.T("log.empty"), Font, ClientRectangle, Theme.TextMuted,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
                 return;
             }

@@ -130,6 +130,12 @@ namespace MemoryOptimizer
         private bool _hover;
         private bool _pressed;
         private bool _primary = true;
+        private Font _fitFont;
+        private string _fitText;
+        private int _fitWidth = -1;
+
+        private const TextFormatFlags MeasureFlags =
+            TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
 
         public bool Primary
         {
@@ -153,6 +159,58 @@ namespace MemoryOptimizer
         {
             Font = Theme.Caps;
             Size = new Size(64, 26);
+        }
+
+        /// <summary>文字过长时自动缩小字号，避免小语种按钮被裁切。</summary>
+        private void EnsureFit()
+        {
+            if (_fitWidth == Width && string.Equals(_fitText, Text, StringComparison.Ordinal))
+                return;
+
+            _fitWidth = Width;
+            _fitText = Text;
+            if (_fitFont != null)
+            {
+                _fitFont.Dispose();
+                _fitFont = null;
+            }
+
+            if (string.IsNullOrEmpty(Text) || Width <= 10) return;
+
+            int available = Width - 14;
+            Size baseSize = TextRenderer.MeasureText(Text, Font, new Size(4096, 4096), MeasureFlags);
+            if (baseSize.Width <= available) return;
+
+            for (float size = Font.Size - 0.5f; size >= 7f; size -= 0.5f)
+            {
+                Font candidate = new Font(Font.FontFamily, size, Font.Style, GraphicsUnit.Point);
+                Size candidateSize = TextRenderer.MeasureText(Text, candidate, new Size(4096, 4096), MeasureFlags);
+                if (candidateSize.Width <= available)
+                {
+                    _fitFont = candidate;
+                    break;
+                }
+                candidate.Dispose();
+            }
+        }
+
+        private Font DrawFont
+        {
+            get
+            {
+                EnsureFit();
+                return _fitFont ?? Font;
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && _fitFont != null)
+            {
+                _fitFont.Dispose();
+                _fitFont = null;
+            }
+            base.Dispose(disposing);
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -258,7 +316,7 @@ namespace MemoryOptimizer
 
                 TextFormatFlags flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
                                         TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
-                TextRenderer.DrawText(graphics, Text, Font, ClientRectangle, textColor, flags);
+                TextRenderer.DrawText(graphics, Text, DrawFont, ClientRectangle, textColor, flags);
             }
         }
     }

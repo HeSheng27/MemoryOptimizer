@@ -53,9 +53,9 @@ namespace MemoryOptimizer
             OptimizeResult result = new OptimizeResult();
             result.IsAdministrator = Native.IsAdministrator();
 
-            log("开始优化内存…", LogLevel.Info);
+            log(Loc.T("opt.log.start"), LogLevel.Info);
             if (!result.IsAdministrator)
-                log("当前是普通权限，系统级清理可能被拒绝（可在底部切换到管理员）。", LogLevel.Warn);
+                log(Loc.T("opt.log.noAdmin"), LogLevel.Warn);
 
             // 这两个特权是清理待机列表 / 文件缓存必需的；普通权限下会静默失败。
             Native.EnablePrivilege("SeProfileSingleProcessPrivilege");
@@ -73,12 +73,12 @@ namespace MemoryOptimizer
                 {
                     result.FileCacheCleared = true;
                     result.ActionsSucceeded++;
-                    log("已清空系统文件缓存。", LogLevel.Success);
+                    log(Loc.T("opt.log.cacheOk"), LogLevel.Success);
                 }
                 else
                 {
                     result.ActionsFailed++;
-                    log(string.Format("清空系统文件缓存失败{0}。", DescribeWin32Error(error)), LogLevel.Warn);
+                    log(Loc.F("opt.log.cacheFail", DescribeWin32Error(error)), LogLevel.Warn);
                 }
             }
 
@@ -108,9 +108,9 @@ namespace MemoryOptimizer
                 if (options.ProtectForeground)
                 {
                     if (protectedName != null)
-                        log("前台程序保护：跳过 " + protectedName + "。", LogLevel.Info);
+                        log(Loc.F("opt.log.fgSkip", protectedName), LogLevel.Info);
                     else
-                        log("前台程序保护：未检测到前台窗口，本次不跳过前台进程。", LogLevel.Info);
+                        log(Loc.T("opt.log.fgNone"), LogLevel.Info);
                 }
 
                 TrimResult trim = Native.TrimWorkingSets(skipNames, protectedPid);
@@ -124,13 +124,12 @@ namespace MemoryOptimizer
                 if (trim.Trimmed > 0)
                 {
                     result.ActionsSucceeded++;
-                    log(string.Format("已压缩 {0} 个进程的工作集（跳过 {1} 个：系统关键进程/排除名单/自身；{2} 个无权限访问，共 {3} 个）。",
-                        trim.Trimmed, trim.Skipped, trim.Blocked, trim.Total), LogLevel.Success);
+                    log(Loc.F("opt.log.wsOk", trim.Trimmed, trim.Skipped, trim.Blocked, trim.Total), LogLevel.Success);
                 }
                 else
                 {
                     result.ActionsFailed++;
-                    log("没有成功压缩任何进程，试试以管理员身份运行。", LogLevel.Warn);
+                    log(Loc.T("opt.log.wsFail"), LogLevel.Warn);
                 }
             }
 
@@ -141,12 +140,12 @@ namespace MemoryOptimizer
                 {
                     result.StandbyPurged = true;
                     result.ActionsSucceeded++;
-                    log("已清空待机内存列表。", LogLevel.Success);
+                    log(Loc.T("opt.log.standbyOk"), LogLevel.Success);
                 }
                 else
                 {
                     result.ActionsFailed++;
-                    log(string.Format("清空待机内存列表失败{0}。", DescribeNtStatus(status)), LogLevel.Warn);
+                    log(Loc.F("opt.log.standbyFail", DescribeNtStatus(status)), LogLevel.Warn);
                 }
             }
 
@@ -164,10 +163,9 @@ namespace MemoryOptimizer
             result.FreedBytes = freed;
             result.ElapsedSeconds = watch.Elapsed.TotalSeconds;
 
-            log(string.Format("优化完成，耗时 {0:0.00} 秒，本次释放约 {1}。",
-                result.ElapsedSeconds, Fmt.Bytes(result.FreedBytes)),
+            log(Loc.F("opt.log.done", result.ElapsedSeconds, Fmt.Bytes(result.FreedBytes)),
                 result.ActionsSucceeded > 0 ? LogLevel.Success : LogLevel.Warn);
-            log(string.Format("内存状态：可用 {0} → {1}，进程工作集 {2} → {3}。",
+            log(Loc.F("opt.log.state",
                 Fmt.Bytes(result.AvailableBefore), Fmt.Bytes(result.AvailableAfter),
                 Fmt.Bytes(result.WorkingSetBefore), Fmt.Bytes(result.WorkingSetAfter)), LogLevel.Info);
 
@@ -176,15 +174,15 @@ namespace MemoryOptimizer
 
         private static string DescribeWin32Error(int code)
         {
-            if (code == 1314) return "（错误码 1314，需要管理员权限）";
-            if (code == 5) return "（错误码 5，访问被拒绝）";
-            return "（错误码 " + code + "）";
+            if (code == 1314) return Loc.F("opt.err.privilege", code);
+            if (code == 5) return Loc.F("opt.err.denied", code);
+            return Loc.F("opt.err.generic", code);
         }
 
         private static string DescribeNtStatus(int status)
         {
-            if (status == unchecked((int)0xC0000061)) return "（STATUS_PRIVILEGE_NOT_HELD，需要管理员权限）";
-            return string.Format("（NTSTATUS 0x{0:X8}）", status);
+            if (status == unchecked((int)0xC0000061)) return Loc.T("opt.err.ntPrivilege");
+            return Loc.F("opt.err.nt", status);
         }
     }
 }

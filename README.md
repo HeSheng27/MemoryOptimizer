@@ -1,6 +1,6 @@
 # 内存优化器 (MemoryOptimizer)
 
-一个 Windows 小工具：一键或按阈值自动清理**进程工作集**、**待机内存列表**和**系统文件缓存**，并常驻托盘。
+一个仿 PCL2「百宝箱 → 内存优化」的独立 Windows 小工具：一键或按阈值自动清理**进程工作集**、**待机内存列表**和**系统文件缓存**，并常驻托盘。
 
 ![界面截图](screenshot.png)
 
@@ -18,6 +18,7 @@
 - **权限提示与一键提权**：底部显示当前权限；非管理员时可点「以管理员身份重启」。
 - **日志**：界面内彩色日志，同时写入程序目录 `MemoryOptimizer.log`（超过 512 KB 自动轮换）。
 - **快捷键**：`F5` 立即优化。
+- **多语言**：30 种界面语言，默认跟随系统；右下角语言按钮打开按英文名排序的语言列表，切换立即生效。
 - 单实例运行，重复启动会提示已在运行。
 
 ## 使用方法
@@ -37,6 +38,18 @@
 3. 首次启动会读取默认配置：自动优化开启、阈值 85%、冷却 120 秒。可在「自动优化」卡片里修改。
 4. 想保护某个程序时，点「优化项目」右上角的 **「排除名单」**，每行填一个进程名（可不带 `.exe`）；「清理时跳过前台程序」默认勾选。
 5. 关闭窗口会缩到托盘。要彻底退出，请用托盘右键菜单的「退出」。
+
+### 多语言
+
+- 内置 **30 种界面语言**：简体中文、繁體中文、English、日本語、한국어、العربية、हिन्दी、বাংলা、اردو、ไทย、Tiếng Việt、Русский、Українська、Српски、Polski、Čeština、Ελληνικά、Magyar、Қазақша、Türkçe、Deutsch、Français、Español、Português、Bahasa Indonesia、Italiano、Svenska、Norsk bokmål、Dansk、Suomi。
+- 覆盖主界面、托盘菜单、日志、排除名单对话框、语言选择框和 CLI 报告。
+- 首次启动默认跟随系统语言（`Language=auto`）；点窗口右下角的语言按钮会弹出语言列表，**按英文名首字母排序**，切换后立即生效，不需要重启。
+- 历史日志行保留写入时的语言，新产生的日志使用当前语言。
+- 语言文本存放在 `lang/<code>.ini`（`key=value`，UTF-8 无 BOM）。编译时会嵌入 exe；也可以把 `lang` 文件夹放在 exe 旁边覆盖内置文本，方便校对或自定义。
+- 新增语言：复制 `lang/en-US.ini` 翻译成目标语言，再在 `lang/languages.ini` 加一行 `代码|英文名|本地名`，重新编译即可。
+- 阿拉伯语、乌尔都语等 RTL 语言目前只做了文字渲染，界面布局仍是从左到右，尚未做整窗镜像。
+
+![English UI](screenshot-en.png)
 
 ### SmartScreen 提示
 
@@ -63,6 +76,35 @@ Windows 没有「单个文件的 SmartScreen 白名单」，要让 `MemoryOptimi
 
 > 注意：属性对话框里的「解除锁定」只出现在**文件**（exe）的属性里，文件夹属性没有这一项；而且本目录构建出的 exe 本身不带网络来源标记（无 `Zone.Identifier`），所以这一步不适用。
 
+### 代码签名
+
+前提：**只有 CA（证书颁发机构）签发的代码签名证书才能让 SmartScreen 放行**。自签名证书只能把「发布者未知」变成你的名字，SmartScreen 的橙色拦截框仍然会弹；EV 证书立即建立信誉，OV 证书通常还要积累一段下载量。
+
+1. 拿到证书（`.pfx` + 密码，或硬件令牌 + 证书指纹）。
+2. 签名：
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\sign.ps1 -PfxPath D:\cert\codesign.pfx -Password 你的密码
+   ```
+
+   如果证书已装在当前用户证书存储里：
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\sign.ps1 -Thumbprint 证书指纹
+   ```
+
+3. 验证：
+
+   ```powershell
+   Get-AuthenticodeSignature .\MemoryOptimizer.exe | Format-List Status, StatusMessage, SignerCertificate
+   ```
+
+   `Status` 应为 `Valid`，`SignerCertificate.Subject` 应显示你的证书主题。
+
+4. 每次重新编译后都要重新签一次（签名不影响 exe 的功能，但会改变文件哈希）。
+
+`tools\sign.ps1` 会优先把 PFX 导入当前用户证书存储再签名（硬件令牌/不可导出私钥也能用 `-Thumbprint`），使用 SHA-256 摘要和 DigiCert 时间戳服务器（可用 `-TimestampServer` 换）。
+
 ## 配置文件
 
 优先保存在 **exe 同目录** 的 `settings.ini`（便携）；若该目录不可写（例如放在 `Program Files`），自动回退到 `%APPDATA%\MemoryOptimizer\settings.ini`。
@@ -79,6 +121,7 @@ CooldownSeconds=120   # 两次优化最小间隔（秒）
 StartWithWindows=0    # 开机自启
 StartMinimized=0      # 启动时最小化到托盘
 CloseToTray=1         # 关闭窗口时最小化到托盘
+Language=auto         # auto 或语言代码（如 en-US、ja-JP、ar-SA，完整列表见语言对话框）
 ```
 
 开机自启写在注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `MemoryOptimizer` 值，取消勾选会删除该值。
@@ -141,14 +184,21 @@ MemoryOptimizer/
 ├─ README.md
 ├─ build.ps1                # 编译脚本
 ├─ app.ico                  # 图标
-├─ screenshot.png           # 界面截图
+├─ screenshot.png           # 界面截图（中文）
+├─ screenshot-en.png        # 界面截图（英文）
+├─ lang/                    # 语言文件（编译时嵌入 exe）
+│  ├─ languages.ini         # 语言清单：code|英文名|本地名
+│  ├─ en-US.ini             # 英文文本（126 个键）
+│  └─ ...                   # 其余 29 种语言
 ├─ src/
 │  ├─ Program.cs            # 入口、单实例、CLI / 截图模式
-│  ├─ MainForm.cs           # 主界面、托盘、自动优化逻辑
+│  ├─ MainForm.cs           # 主界面、托盘、自动优化、语言切换
 │  ├─ Optimizer.cs          # 清理流程与结果统计
 │  ├─ Native.cs             # Win32/NT API 封装
 │  ├─ MemorySnapshot.cs     # 内存快照
 │  ├─ Settings.cs           # 配置读写、开机自启、排除名单
+│  ├─ Loc.cs                # 语言加载（ini/嵌入资源，自动回退英文）
+│  ├─ LanguageForm.cs       # 按英文名排序的语言选择框
 │  ├─ Theme.cs / Controls.cs / MemoryGauge.cs / LogView.cs   # 自绘界面组件
 │  ├─ ExcludeForm.cs        # 排除名单对话框
 │  └─ AssemblyInfo.cs

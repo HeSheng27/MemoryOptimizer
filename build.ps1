@@ -32,6 +32,14 @@ $compilerArgs = @(
 )
 if (Test-Path $iconPath) { $compilerArgs += "/win32icon:$iconPath" }
 
+# Embed every language file as MemoryOptimizer.lang.<file>
+$langDir = Join-Path $root 'lang'
+if (Test-Path $langDir) {
+    Get-ChildItem $langDir -Filter *.ini | Sort-Object Name | ForEach-Object {
+        $compilerArgs += "/resource:$($_.FullName),MemoryOptimizer.lang.$($_.Name)"
+    }
+}
+
 $references = @('System.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll')
 foreach ($reference in $references) {
     $compilerArgs += ('/r:' + (Join-Path $frameworkDir $reference))

@@ -29,16 +29,25 @@ namespace MemoryOptimizer
         private FlatButton _btnClearLog;
         private FlatButton _btnExclude;
         private FlatButton _btnElevate;
+        private FlatButton _btnLanguage;
         private NumericUpDown _numThreshold;
         private NumericUpDown _numCooldown;
         private SwitchToggle _switchAuto;
         private Label _lblLastRun;
         private Label _lblStatus;
+        private Label _lblAutoPrefix;
+        private Label _lblAutoSuffix;
+        private Label _lblAutoSeconds;
+        private Label _lblAutoSwitch;
         private LogView _logView;
+        private TableLayoutPanel _statusPanel;
 
         private NotifyIcon _tray;
         private ContextMenuStrip _trayMenu;
+        private ToolStripMenuItem _trayShowItem;
+        private ToolStripMenuItem _trayOptimizeItem;
         private ToolStripMenuItem _trayAutoItem;
+        private ToolStripMenuItem _trayExitItem;
 
         private bool _loading = true;
         private bool _isOptimizing;
@@ -51,13 +60,18 @@ namespace MemoryOptimizer
         private long _totalFreed;
         private MemorySnapshot _lastSnapshot;
 
+        private bool _hasLastRun;
+        private bool _lastRunFailed;
+        private long _lastFreed;
+        private DateTime _lastRunTime;
+
         public MainForm(Settings settings, bool startHidden, bool previewMode)
         {
             _settings = settings ?? new Settings();
             _startHidden = startHidden;
             _previewMode = previewMode;
 
-            Text = "内存优化器";
+            Text = Loc.T("app.title");
             Font = Theme.Body;
             BackColor = Theme.Bg;
             ForeColor = Theme.Text;
@@ -79,6 +93,7 @@ namespace MemoryOptimizer
             BuildUi();
             ApplySettings();
             BuildTray();
+            ApplyLanguage();
             WriteStartupLog();
 
             _uiTimer = new System.Windows.Forms.Timer();
@@ -123,8 +138,8 @@ namespace MemoryOptimizer
 
             // 内存概览
             _cardOverview = new CardPanel();
-            _cardOverview.Title = "内存概览";
-            _cardOverview.HeaderNote = "每 1 秒刷新";
+            _cardOverview.Title = Loc.T("card.overview");
+            _cardOverview.HeaderNote = Loc.T("note.live");
             _cardOverview.Dock = DockStyle.Fill;
             _gauge = new MemoryGauge();
             _gauge.Dock = DockStyle.Fill;
@@ -133,8 +148,8 @@ namespace MemoryOptimizer
 
             // 优化项目
             _cardOptions = new CardPanel();
-            _cardOptions.Title = "优化项目";
-            _cardOptions.HeaderNote = "清理瞬间可能造成短暂卡顿";
+            _cardOptions.Title = Loc.T("card.options");
+            _cardOptions.HeaderNote = Loc.T("note.optionsHint");
             _cardOptions.Padding = new Padding(18, 46, 18, 12);
             _cardOptions.Dock = DockStyle.Fill;
             grid.Controls.Add(_cardOptions, 0, 1);
@@ -142,11 +157,10 @@ namespace MemoryOptimizer
             _btnExclude = new FlatButton();
             _btnExclude.SetCompact();
             _btnExclude.Primary = false;
-            _btnExclude.Text = "排除名单";
-            _btnExclude.Size = new Size(90, 26);
+            _btnExclude.Text = Loc.T("btn.exclude");
+            _btnExclude.Size = new Size(92, 26);
             _btnExclude.Click += OnExcludeClick;
             _cardOptions.AddHeaderControl(_btnExclude);
-            _tips.SetToolTip(_btnExclude, "指定不参与清理的进程；系统关键进程始终会被跳过。");
 
             TableLayoutPanel optionsLayout = new TableLayoutPanel();
             optionsLayout.Dock = DockStyle.Fill;
@@ -166,11 +180,11 @@ namespace MemoryOptimizer
             optionsLayout.Controls.Add(checks, 0, 0);
 
             EventHandler optionChanged = new EventHandler(OnOptionChanged);
-            _chkTrim = CreateCheck("压缩进程工作集", "对每个可访问的进程调用 EmptyWorkingSet，把暂时不用的内存页移出物理内存。", optionChanged);
+            _chkTrim = CreateCheck(Loc.T("opt.trim"), optionChanged);
             _chkTrim.Margin = new Padding(0, 5, 36, 0);
-            _chkStandby = CreateCheck("清理待机内存列表", "清空 Standby List（系统预读缓存）。需要管理员权限。", optionChanged);
+            _chkStandby = CreateCheck(Loc.T("opt.standby"), optionChanged);
             _chkStandby.Margin = new Padding(0, 5, 36, 0);
-            _chkCache = CreateCheck("清理系统文件缓存", "刷新 System File Cache。需要管理员权限。", optionChanged);
+            _chkCache = CreateCheck(Loc.T("opt.cache"), optionChanged);
             _chkCache.Margin = new Padding(0, 5, 0, 0);
             checks.Controls.Add(_chkTrim);
             checks.Controls.Add(_chkStandby);
@@ -186,15 +200,14 @@ namespace MemoryOptimizer
             optionsLayout.Controls.Add(actions, 0, 1);
 
             _btnOptimize = new FlatButton();
-            _btnOptimize.Text = "一键优化";
+            _btnOptimize.Text = Loc.T("btn.optimize");
             _btnOptimize.Dock = DockStyle.Fill;
             _btnOptimize.Margin = new Padding(0, 4, 12, 2);
             _btnOptimize.Click += delegate { StartOptimize(false); };
             actions.Controls.Add(_btnOptimize, 0, 0);
-            _tips.SetToolTip(_btnOptimize, "立即执行勾选的优化项目（快捷键 F5）。");
 
             _lblLastRun = new Label();
-            _lblLastRun.Text = "尚未执行优化";
+            _lblLastRun.Text = Loc.T("last.none");
             _lblLastRun.Dock = DockStyle.Fill;
             _lblLastRun.TextAlign = ContentAlignment.MiddleLeft;
             _lblLastRun.Font = Theme.Caps;
@@ -205,7 +218,7 @@ namespace MemoryOptimizer
 
             // 自动优化
             _cardAuto = new CardPanel();
-            _cardAuto.Title = "自动优化";
+            _cardAuto.Title = Loc.T("card.auto");
             _cardAuto.Padding = new Padding(18, 46, 18, 12);
             _cardAuto.Dock = DockStyle.Fill;
             grid.Controls.Add(_cardAuto, 0, 2);
@@ -235,16 +248,20 @@ namespace MemoryOptimizer
             autoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58f));
             autoLayout.Controls.Add(autoRow, 0, 0);
 
-            autoRow.Controls.Add(CreateInlineLabel("内存占用达到"), 0, 0);
+            _lblAutoPrefix = CreateInlineLabel(Loc.T("auto.prefix"));
+            autoRow.Controls.Add(_lblAutoPrefix, 0, 0);
             _numThreshold = CreateNumber(85, 1, 99, 54);
             _numThreshold.ValueChanged += OnThresholdChanged;
             autoRow.Controls.Add(_numThreshold, 1, 0);
-            autoRow.Controls.Add(CreateInlineLabel("% 时自动清理，冷却"), 2, 0);
+            _lblAutoSuffix = CreateInlineLabel(Loc.T("auto.suffix"));
+            autoRow.Controls.Add(_lblAutoSuffix, 2, 0);
             _numCooldown = CreateNumber(120, 5, 3600, 62);
             _numCooldown.ValueChanged += OnCooldownChanged;
             autoRow.Controls.Add(_numCooldown, 3, 0);
-            autoRow.Controls.Add(CreateInlineLabel("秒"), 4, 0);
-            autoRow.Controls.Add(CreateInlineLabel("启用自动优化"), 6, 0);
+            _lblAutoSeconds = CreateInlineLabel(Loc.T("auto.seconds"));
+            autoRow.Controls.Add(_lblAutoSeconds, 4, 0);
+            _lblAutoSwitch = CreateInlineLabel(Loc.T("auto.switch"));
+            autoRow.Controls.Add(_lblAutoSwitch, 6, 0);
 
             _switchAuto = new SwitchToggle();
             _switchAuto.Anchor = AnchorStyles.Left;
@@ -259,11 +276,11 @@ namespace MemoryOptimizer
             switches.Margin = new Padding(0, 2, 0, 0);
             autoLayout.Controls.Add(switches, 0, 1);
 
-            _chkStartup = CreateCheck("开机自动启动", "登录 Windows 后自动在托盘运行（写入 HKCU 启动项）。", new EventHandler(OnStartupCheckedChanged));
+            _chkStartup = CreateCheck(Loc.T("chk.startup"), new EventHandler(OnStartupCheckedChanged));
             _chkStartup.Margin = new Padding(0, 4, 22, 0);
-            _chkStartMin = CreateCheck("启动时最小化到托盘", "开机启动时不弹出主界面。", new EventHandler(OnStartMinCheckedChanged));
+            _chkStartMin = CreateCheck(Loc.T("chk.startMin"), new EventHandler(OnStartMinCheckedChanged));
             _chkStartMin.Margin = new Padding(0, 4, 22, 0);
-            _chkCloseTray = CreateCheck("关闭时最小化到托盘", "点击关闭按钮时不退出，自动优化继续在后台运行。", new EventHandler(OnCloseTrayCheckedChanged));
+            _chkCloseTray = CreateCheck(Loc.T("chk.closeTray"), new EventHandler(OnCloseTrayCheckedChanged));
             _chkCloseTray.Margin = new Padding(0, 4, 0, 0);
             switches.Controls.Add(_chkStartup);
             switches.Controls.Add(_chkStartMin);
@@ -271,7 +288,7 @@ namespace MemoryOptimizer
 
             // 运行日志
             _cardLog = new CardPanel();
-            _cardLog.Title = "运行日志";
+            _cardLog.Title = Loc.T("card.log");
             _cardLog.Padding = new Padding(18, 46, 18, 12);
             _cardLog.Dock = DockStyle.Fill;
             grid.Controls.Add(_cardLog, 0, 3);
@@ -279,11 +296,11 @@ namespace MemoryOptimizer
             _btnClearLog = new FlatButton();
             _btnClearLog.SetCompact();
             _btnClearLog.Primary = false;
-            _btnClearLog.Text = "清空";
+            _btnClearLog.Text = Loc.T("btn.clear");
             _btnClearLog.Click += delegate
             {
                 if (_logView != null) _logView.Clear();
-                AppendLogToBox("日志已清空。", LogLevel.Info);
+                AppendLogToBox(Loc.T("log.cleared"), LogLevel.Info);
             };
             _cardLog.AddHeaderControl(_btnClearLog);
 
@@ -295,12 +312,14 @@ namespace MemoryOptimizer
             // 底部状态栏
             TableLayoutPanel status = new TableLayoutPanel();
             status.Dock = DockStyle.Fill;
-            status.ColumnCount = 2;
+            status.ColumnCount = 3;
             status.RowCount = 1;
             status.Margin = new Padding(0);
             status.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156f));
+            status.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 176f));
             root.Controls.Add(status, 0, 1);
+            _statusPanel = status;
 
             _lblStatus = new Label();
             _lblStatus.Dock = DockStyle.Fill;
@@ -311,15 +330,25 @@ namespace MemoryOptimizer
             _lblStatus.Margin = new Padding(0);
             status.Controls.Add(_lblStatus, 0, 0);
 
+            _btnLanguage = new FlatButton();
+            _btnLanguage.SetCompact();
+            _btnLanguage.Primary = false;
+            _btnLanguage.Text = Loc.NativeName(Loc.Current);
+            _btnLanguage.Size = new Size(148, 24);
+            _btnLanguage.Anchor = AnchorStyles.Right;
+            _btnLanguage.Margin = new Padding(0, 3, 6, 3);
+            _btnLanguage.Click += delegate { ChooseLanguage(); };
+            status.Controls.Add(_btnLanguage, 1, 0);
+
             _btnElevate = new FlatButton();
             _btnElevate.SetCompact();
             _btnElevate.Primary = false;
-            _btnElevate.Text = "以管理员身份重启";
-            _btnElevate.Size = new Size(150, 24);
+            _btnElevate.Text = Loc.T("btn.elevate");
+            _btnElevate.Size = new Size(168, 24);
             _btnElevate.Anchor = AnchorStyles.Right;
             _btnElevate.Margin = new Padding(0, 3, 0, 3);
             _btnElevate.Click += OnElevateClick;
-            status.Controls.Add(_btnElevate, 1, 0);
+            status.Controls.Add(_btnElevate, 2, 0);
 
             if (Native.IsAdministrator())
                 _btnElevate.Visible = false;
@@ -327,7 +356,55 @@ namespace MemoryOptimizer
             ResumeLayout(true);
         }
 
-        private CheckBox CreateCheck(string text, string tooltip, EventHandler changed)
+        private void ChooseLanguage()
+        {
+            using (LanguageForm form = new LanguageForm(_settings.Language))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK) return;
+                ChangeLanguage(form.SelectedCode);
+            }
+        }
+
+        private void ChangeLanguage(string code)
+        {
+            _settings.Language = code;
+            Loc.Initialize(code);
+            _settings.Save();
+            ApplyLanguage();
+            AppendLogToBox(Loc.T("log.langChanged"), LogLevel.Info);
+        }
+
+        private void UpdateLanguageButton()
+        {
+            if (_btnLanguage == null) return;
+            _btnLanguage.Text = Loc.NativeName(Loc.Current);
+        }
+
+        /// <summary>状态栏按钮按文字长度调整宽度，避免长语种被裁切。</summary>
+        private void AdjustStatusButtons()
+        {
+            if (_statusPanel == null || _btnLanguage == null || _btnElevate == null) return;
+
+            int languageWidth = MeasureButtonWidth(_btnLanguage, 96, 230);
+            _btnLanguage.Size = new Size(languageWidth, 24);
+            _statusPanel.ColumnStyles[1].Width = languageWidth + 6;
+
+            int elevateWidth = MeasureButtonWidth(_btnElevate, 130, 300);
+            _btnElevate.Size = new Size(elevateWidth, 24);
+            _statusPanel.ColumnStyles[2].Width = elevateWidth + 4;
+        }
+
+        private static int MeasureButtonWidth(Control control, int minimum, int maximum)
+        {
+            Size size = TextRenderer.MeasureText(control.Text, control.Font, new Size(4096, 4096),
+                TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+            int width = size.Width + 24;
+            if (width < minimum) width = minimum;
+            if (width > maximum) width = maximum;
+            return width;
+        }
+
+        private CheckBox CreateCheck(string text, EventHandler changed)
         {
             CheckBox checkBox = new CheckBox();
             checkBox.Text = text;
@@ -339,7 +416,6 @@ namespace MemoryOptimizer
             checkBox.Anchor = AnchorStyles.Left;
             checkBox.Margin = new Padding(0);
             if (changed != null) checkBox.CheckedChanged += changed;
-            if (_tips != null && !string.IsNullOrEmpty(tooltip)) _tips.SetToolTip(checkBox, tooltip);
             return checkBox;
         }
 
@@ -380,30 +456,30 @@ namespace MemoryOptimizer
             _trayMenu = new ContextMenuStrip();
             _trayMenu.Font = Theme.BodySmall;
 
-            ToolStripMenuItem showItem = new ToolStripMenuItem("打开主界面");
-            showItem.Click += delegate { ShowFromTray(); };
-            _trayMenu.Items.Add(showItem);
+            _trayShowItem = new ToolStripMenuItem(Loc.T("tray.show"));
+            _trayShowItem.Click += delegate { ShowFromTray(); };
+            _trayMenu.Items.Add(_trayShowItem);
 
-            ToolStripMenuItem optimizeItem = new ToolStripMenuItem("立即优化");
-            optimizeItem.Click += delegate { StartOptimize(false); };
-            _trayMenu.Items.Add(optimizeItem);
+            _trayOptimizeItem = new ToolStripMenuItem(Loc.T("tray.optimize"));
+            _trayOptimizeItem.Click += delegate { StartOptimize(false); };
+            _trayMenu.Items.Add(_trayOptimizeItem);
 
             _trayMenu.Items.Add(new ToolStripSeparator());
 
-            _trayAutoItem = new ToolStripMenuItem("自动优化");
+            _trayAutoItem = new ToolStripMenuItem(Loc.T("tray.auto"));
             _trayAutoItem.Checked = _settings.AutoEnabled;
             _trayAutoItem.Click += delegate { ApplyAutoState(!_settings.AutoEnabled, true); };
             _trayMenu.Items.Add(_trayAutoItem);
 
             _trayMenu.Items.Add(new ToolStripSeparator());
 
-            ToolStripMenuItem exitItem = new ToolStripMenuItem("退出");
-            exitItem.Click += delegate { ExitApplication(); };
-            _trayMenu.Items.Add(exitItem);
+            _trayExitItem = new ToolStripMenuItem(Loc.T("tray.exit"));
+            _trayExitItem.Click += delegate { ExitApplication(); };
+            _trayMenu.Items.Add(_trayExitItem);
 
             _tray = new NotifyIcon();
             _tray.Icon = Icon;
-            _tray.Text = "内存优化器";
+            _tray.Text = Loc.T("tray.tooltip");
             _tray.ContextMenuStrip = _trayMenu;
             _tray.DoubleClick += delegate { ShowFromTray(); };
             _tray.Visible = true;
@@ -411,24 +487,23 @@ namespace MemoryOptimizer
 
         private void WriteStartupLog()
         {
-            AppendLogToBox("内存优化器 v" + Application.ProductVersion + " 已启动。", LogLevel.Info);
-            if (Native.IsAdministrator())
-                AppendLogToBox("当前为管理员权限，可以执行全部清理项目。", LogLevel.Success);
-            else
-                AppendLogToBox("当前为普通权限，清理待机列表和文件缓存会被系统拒绝。", LogLevel.Warn);
+            AppendLogToBox(Loc.F("log.started", Application.ProductVersion), LogLevel.Info);
+            AppendLogToBox(Native.IsAdministrator() ? Loc.T("log.admin") : Loc.T("log.user"),
+                Native.IsAdministrator() ? LogLevel.Success : LogLevel.Warn);
 
-            AppendLogToBox(string.Format("自动优化{0}：内存占用达到 {1}% 时清理，两次清理至少间隔 {2} 秒。",
-                _settings.AutoEnabled ? "已开启" : "已关闭",
-                _settings.ThresholdPercent, _settings.CooldownSeconds), LogLevel.Info);
+            if (_settings.AutoEnabled)
+                AppendLogToBox(Loc.F("log.autoOn", _settings.ThresholdPercent, _settings.CooldownSeconds), LogLevel.Info);
+            else
+                AppendLogToBox(Loc.T("log.autoOff"), LogLevel.Info);
 
             if (_settings.ProtectForeground)
-                AppendLogToBox("前台程序保护已开启，正在使用的程序不会被清理。", LogLevel.Info);
+                AppendLogToBox(Loc.T("log.foreground"), LogLevel.Info);
             if (_settings.GetExcludedNames().Count > 0)
-                AppendLogToBox("排除名单：" + DescribeExclusions(), LogLevel.Info);
+                AppendLogToBox(Loc.F("log.exclusions", DescribeExclusions()), LogLevel.Info);
         }
 
         // ────────────────────────────────────────────────────────────────
-        // 配置 / 状态
+        // 配置 / 语言
         // ────────────────────────────────────────────────────────────────
         private void ApplySettings()
         {
@@ -457,16 +532,121 @@ namespace MemoryOptimizer
             UpdateAutoHeader();
         }
 
+        /// <summary>切换语言后刷新所有文字（不重建窗口，日志保留原语言的历史记录）。</summary>
+        private void ApplyLanguage()
+        {
+            Text = Loc.T("app.title");
+            _cardOverview.Title = Loc.T("card.overview");
+            _cardOptions.Title = Loc.T("card.options");
+            _cardOptions.HeaderNote = Loc.T("note.optionsHint");
+            _cardAuto.Title = Loc.T("card.auto");
+            _cardLog.Title = Loc.T("card.log");
+
+            _chkTrim.Text = Loc.T("opt.trim");
+            _chkStandby.Text = Loc.T("opt.standby");
+            _chkCache.Text = Loc.T("opt.cache");
+            _btnOptimize.Text = _isOptimizing ? Loc.T("btn.optimizing") : Loc.T("btn.optimize");
+            _btnExclude.Text = Loc.T("btn.exclude");
+            _btnClearLog.Text = Loc.T("btn.clear");
+            _btnElevate.Text = Loc.T("btn.elevate");
+            UpdateLanguageButton();
+
+            _lblAutoPrefix.Text = Loc.T("auto.prefix");
+            _lblAutoSuffix.Text = Loc.T("auto.suffix");
+            _lblAutoSeconds.Text = Loc.T("auto.seconds");
+            _lblAutoSwitch.Text = Loc.T("auto.switch");
+
+            _chkStartup.Text = Loc.T("chk.startup");
+            _chkStartMin.Text = Loc.T("chk.startMin");
+            _chkCloseTray.Text = Loc.T("chk.closeTray");
+
+            ApplyTooltips();
+            UpdateLastRunLabel();
+            UpdateAutoHeader();
+            UpdateOverviewNote();
+            UpdateStatusText();
+            UpdateTrayTexts();
+            if (_logView != null) _logView.ApplyLanguage();
+            AdjustStatusButtons();
+            if (_gauge != null) _gauge.Invalidate();
+            Invalidate(true);
+        }
+
+        private void ApplyTooltips()
+        {
+            if (_tips == null) return;
+            _tips.SetToolTip(_chkTrim, Loc.T("opt.trimTip"));
+            _tips.SetToolTip(_chkStandby, Loc.T("opt.standbyTip"));
+            _tips.SetToolTip(_chkCache, Loc.T("opt.cacheTip"));
+            _tips.SetToolTip(_btnOptimize, Loc.T("btn.optimizeTip"));
+            _tips.SetToolTip(_btnExclude, Loc.T("btn.excludeTip"));
+            _tips.SetToolTip(_chkStartup, Loc.T("chk.startupTip"));
+            _tips.SetToolTip(_chkStartMin, Loc.T("chk.startMinTip"));
+            _tips.SetToolTip(_chkCloseTray, Loc.T("chk.closeTrayTip"));
+            _tips.SetToolTip(_btnLanguage, Loc.T("status.langTip"));
+            _tips.SetToolTip(_lblStatus, Loc.F("status.config", Settings.FilePath));
+        }
+
+        private void UpdateTrayTexts()
+        {
+            if (_tray == null) return;
+            _tray.Text = Loc.T("tray.tooltip");
+            if (_trayShowItem != null) _trayShowItem.Text = Loc.T("tray.show");
+            if (_trayOptimizeItem != null) _trayOptimizeItem.Text = Loc.T("tray.optimize");
+            if (_trayAutoItem != null) _trayAutoItem.Text = Loc.T("tray.auto");
+            if (_trayExitItem != null) _trayExitItem.Text = Loc.T("tray.exit");
+        }
+
+        private void UpdateLastRunLabel()
+        {
+            if (_lblLastRun == null) return;
+
+            if (_lastRunFailed)
+            {
+                _lblLastRun.Text = Loc.T("last.failed");
+                _lblLastRun.ForeColor = Theme.Danger;
+                return;
+            }
+
+            if (_hasLastRun)
+            {
+                _lblLastRun.Text = Loc.F("last.result",
+                    _lastRunTime.ToString("HH:mm:ss"), Fmt.Bytes(_lastFreed), Fmt.Bytes(_totalFreed));
+                _lblLastRun.ForeColor = Theme.TextMuted;
+            }
+            else
+            {
+                _lblLastRun.Text = Loc.T("last.none");
+                _lblLastRun.ForeColor = Theme.TextMuted;
+            }
+        }
+
+        private void UpdateOverviewNote()
+        {
+            if (_cardOverview == null) return;
+            if (_hasLastRun && !_lastRunFailed)
+            {
+                _cardOverview.HeaderNote = Loc.F("note.lastFreed", Fmt.Bytes(_lastFreed));
+                _cardOverview.HeaderNoteColor = _lastFreed > 0 ? Theme.Success : Theme.TextMuted;
+            }
+            else
+            {
+                _cardOverview.HeaderNote = Loc.T("note.live");
+                _cardOverview.HeaderNoteColor = Theme.TextMuted;
+            }
+        }
+
         private void UpdateAutoHeader()
         {
+            if (_cardAuto == null) return;
             if (_settings.AutoEnabled)
             {
-                _cardAuto.HeaderNote = string.Format("已启用 · 达到 {0}% 自动清理", _settings.ThresholdPercent);
+                _cardAuto.HeaderNote = Loc.F("note.autoOn", _settings.ThresholdPercent);
                 _cardAuto.HeaderNoteColor = Theme.Success;
             }
             else
             {
-                _cardAuto.HeaderNote = "已关闭";
+                _cardAuto.HeaderNote = Loc.T("note.autoOff");
                 _cardAuto.HeaderNoteColor = Theme.TextMuted;
             }
         }
@@ -487,7 +667,7 @@ namespace MemoryOptimizer
             _settings.Save();
             UpdateAutoHeader();
             if (writeLog)
-                AppendLogToBox(enabled ? "自动优化已开启。" : "自动优化已关闭。", LogLevel.Info);
+                AppendLogToBox(Loc.T(enabled ? "log.autoEnabled" : "log.autoDisabled"), LogLevel.Info);
         }
 
         private void OnOptionChanged(object sender, EventArgs e)
@@ -527,7 +707,7 @@ namespace MemoryOptimizer
             string error;
             if (!Settings.SetAutoStart(enabled, out error))
             {
-                AppendLogToBox("设置开机自启失败：" + error, LogLevel.Error);
+                AppendLogToBox(Loc.F("log.startupFailed", error), LogLevel.Error);
                 _loading = true;
                 try { _chkStartup.Checked = !enabled; }
                 finally { _loading = false; }
@@ -535,7 +715,7 @@ namespace MemoryOptimizer
             }
             _settings.StartWithWindows = enabled;
             _settings.Save();
-            AppendLogToBox(enabled ? "已开启开机自动启动。" : "已关闭开机自动启动。", LogLevel.Info);
+            AppendLogToBox(Loc.T(enabled ? "log.startupOn" : "log.startupOff"), LogLevel.Info);
         }
 
         private void OnStartMinCheckedChanged(object sender, EventArgs e)
@@ -552,6 +732,14 @@ namespace MemoryOptimizer
             _settings.Save();
         }
 
+        private string DescribeExclusions()
+        {
+            List<string> names = _settings.GetExcludedNames();
+            if (names.Count == 0)
+                return Loc.T("log.exclusionsNone");
+            return string.Join("、", names.ToArray());
+        }
+
         private void OnExcludeClick(object sender, EventArgs e)
         {
             string current = _settings.ExcludedProcesses ?? string.Empty;
@@ -564,16 +752,8 @@ namespace MemoryOptimizer
                 _settings.ExcludedProcesses = Settings.NormalizeExclusions(text);
                 _settings.ProtectForeground = form.ProtectForeground;
                 _settings.Save();
-                AppendLogToBox("排除名单已更新：" + DescribeExclusions(), LogLevel.Info);
+                AppendLogToBox(Loc.F("log.exclusionsUpdated", DescribeExclusions()), LogLevel.Info);
             }
-        }
-
-        private string DescribeExclusions()
-        {
-            List<string> names = _settings.GetExcludedNames();
-            if (names.Count == 0)
-                return "未设置额外排除项（系统关键进程仍会自动跳过）。";
-            return string.Join("、", names.ToArray());
         }
 
         private void OnElevateClick(object sender, EventArgs e)
@@ -591,7 +771,7 @@ namespace MemoryOptimizer
             }
             catch (Exception ex)
             {
-                AppendLogToBox("无法以管理员身份重启：" + ex.Message, LogLevel.Error);
+                AppendLogToBox(Loc.F("log.elevateFailed", ex.Message), LogLevel.Error);
             }
         }
 
@@ -640,11 +820,9 @@ namespace MemoryOptimizer
 
         private void UpdateStatusText()
         {
-            string admin = Native.IsAdministrator() ? "管理员权限" : "普通权限";
-            string auto = _settings.AutoEnabled ? "自动优化运行中" : "自动优化已关闭";
-            _lblStatus.Text = string.Format("v{0} · {1} · {2}", Application.ProductVersion, admin, auto);
-            if (_tips != null)
-                _tips.SetToolTip(_lblStatus, "配置文件：" + Settings.FilePath);
+            string admin = Native.IsAdministrator() ? Loc.T("status.admin") : Loc.T("status.user");
+            string auto = _settings.AutoEnabled ? Loc.T("status.autoOn") : Loc.T("status.autoOff");
+            _lblStatus.Text = Loc.F("status.text", Application.ProductVersion, admin, auto);
         }
 
         private void ScheduleWorkingSetUpdate()
@@ -684,8 +862,7 @@ namespace MemoryOptimizer
                 (DateTime.UtcNow - _lastOptimizeUtc).TotalSeconds < _settings.CooldownSeconds)
                 return;
 
-            AppendLogToBox(string.Format("内存占用 {0:0.0}% 已达到 {1}% 阈值，开始自动优化。",
-                percent, _settings.ThresholdPercent), LogLevel.Info);
+            AppendLogToBox(Loc.F("log.autoTrigger", percent, _settings.ThresholdPercent), LogLevel.Info);
             StartOptimize(true);
         }
 
@@ -702,14 +879,14 @@ namespace MemoryOptimizer
 
             if (!options.TrimWorkingSets && !options.PurgeStandby && !options.ClearFileCache)
             {
-                AppendLogToBox("没有勾选任何优化项目，请至少选择一项。", LogLevel.Warn);
+                AppendLogToBox(Loc.T("log.noOptions"), LogLevel.Warn);
                 return;
             }
 
             _isOptimizing = true;
             _lastOptimizeUtc = DateTime.UtcNow;
             _btnOptimize.Enabled = false;
-            _btnOptimize.Text = "正在优化…";
+            _btnOptimize.Text = Loc.T("btn.optimizing");
             _switchAuto.Enabled = false;
 
             System.Threading.Tasks.Task.Run(delegate
@@ -721,7 +898,7 @@ namespace MemoryOptimizer
                 }
                 catch (Exception ex)
                 {
-                    Log("优化过程出现异常：" + ex.Message, LogLevel.Error);
+                    Log(Loc.F("log.exception", ex.Message), LogLevel.Error);
                 }
 
                 try
@@ -736,31 +913,31 @@ namespace MemoryOptimizer
         {
             _isOptimizing = false;
             _btnOptimize.Enabled = true;
-            _btnOptimize.Text = "一键优化";
+            _btnOptimize.Text = Loc.T("btn.optimize");
             _switchAuto.Enabled = true;
 
             if (result != null)
             {
                 _totalFreed += result.FreedBytes;
-                _lblLastRun.ForeColor = Theme.TextMuted;
-                _lblLastRun.Text = string.Format("上次优化 {0} · 释放约 {1} · 累计 {2}",
-                    DateTime.Now.ToString("HH:mm:ss"), Fmt.Bytes(result.FreedBytes), Fmt.Bytes(_totalFreed));
-
-                _cardOverview.HeaderNote = "上次释放约 " + Fmt.Bytes(result.FreedBytes);
-                _cardOverview.HeaderNoteColor = result.FreedBytes > 0 ? Theme.Success : Theme.TextMuted;
+                _lastFreed = result.FreedBytes;
+                _lastRunTime = DateTime.Now;
+                _hasLastRun = true;
+                _lastRunFailed = false;
+                UpdateLastRunLabel();
+                UpdateOverviewNote();
 
                 if (automatic && !Visible && _tray != null)
                 {
-                    _tray.ShowBalloonTip(3000, "自动优化完成",
-                        string.Format("本次释放约 {0}，当前可用 {1}。",
-                            Fmt.Bytes(result.FreedBytes), Fmt.Bytes(result.AvailableAfter)),
+                    _tray.ShowBalloonTip(3000, Loc.T("tray.doneTitle"),
+                        Loc.F("tray.doneText", Fmt.Bytes(result.FreedBytes), Fmt.Bytes(result.AvailableAfter)),
                         ToolTipIcon.Info);
                 }
             }
             else
             {
-                _lblLastRun.ForeColor = Theme.Danger;
-                _lblLastRun.Text = "上次优化未完成";
+                _lastRunFailed = true;
+                _hasLastRun = true;
+                UpdateLastRunLabel();
             }
 
             RefreshDashboard();
@@ -826,9 +1003,7 @@ namespace MemoryOptimizer
             if (_tray != null && !_trayBalloonShown)
             {
                 _trayBalloonShown = true;
-                _tray.ShowBalloonTip(2500, "内存优化器",
-                    "已最小化到托盘，自动优化仍在后台运行。双击图标可重新打开。",
-                    ToolTipIcon.Info);
+                _tray.ShowBalloonTip(2500, Loc.T("tray.hideTitle"), Loc.T("tray.hideText"), ToolTipIcon.Info);
             }
         }
 

@@ -25,6 +25,9 @@ namespace MemoryOptimizer
         public bool StartMinimized = false;
         public bool CloseToTray = true;
 
+        /// <summary>auto 表示跟随系统，其余为 Loc 里的语言代码。</summary>
+        public string Language = Loc.AutoCode;
+
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string RunValueName = "MemoryOptimizer";
 
@@ -124,6 +127,7 @@ namespace MemoryOptimizer
                 builder.AppendLine("StartWithWindows=" + (StartWithWindows ? "1" : "0"));
                 builder.AppendLine("StartMinimized=" + (StartMinimized ? "1" : "0"));
                 builder.AppendLine("CloseToTray=" + (CloseToTray ? "1" : "0"));
+                builder.AppendLine("Language=" + (Language ?? Loc.AutoCode));
 
                 string temp = FilePath + ".tmp";
                 File.WriteAllText(temp, builder.ToString(), new UTF8Encoding(false));
@@ -147,6 +151,7 @@ namespace MemoryOptimizer
                 case "StartWithWindows": StartWithWindows = ParseBool(value, StartWithWindows); break;
                 case "StartMinimized": StartMinimized = ParseBool(value, StartMinimized); break;
                 case "CloseToTray": CloseToTray = ParseBool(value, CloseToTray); break;
+                case "Language": Language = value; break;
                 case "ThresholdPercent": ThresholdPercent = ParseInt(value, ThresholdPercent); break;
                 case "CooldownSeconds": CooldownSeconds = ParseInt(value, CooldownSeconds); break;
             }
@@ -174,6 +179,9 @@ namespace MemoryOptimizer
             ThresholdPercent = ClampUtil.Int(ThresholdPercent, 1, 99);
             CooldownSeconds = ClampUtil.Int(CooldownSeconds, 5, 3600);
             if (ExcludedProcesses == null) ExcludedProcesses = string.Empty;
+            if (Language == null) Language = Loc.AutoCode;
+            if (!string.Equals(Language, Loc.AutoCode, StringComparison.OrdinalIgnoreCase))
+                Language = Loc.Normalize(Language);
         }
 
         /// <summary>把配置中的排除名单拆成进程名列表（不带 .exe，忽略大小写）。</summary>

@@ -13,9 +13,12 @@ namespace MemoryOptimizer
         [STAThread]
         private static void Main(string[] args)
         {
+            Settings settings = Settings.Load();
+            Loc.Initialize(settings.Language);
+
             if (HasFlag(args, "--cli"))
             {
-                Environment.Exit(RunCli(args));
+                Environment.Exit(RunCli(args, settings));
                 return;
             }
 
@@ -30,6 +33,13 @@ namespace MemoryOptimizer
             if (!string.IsNullOrEmpty(shotDialog))
             {
                 RunShotDialog(shotDialog);
+                return;
+            }
+
+            string shotLanguage = GetValue(args, "--shot-language");
+            if (!string.IsNullOrEmpty(shotLanguage))
+            {
+                RunShotLanguage(shotLanguage);
                 return;
             }
 
@@ -48,13 +58,12 @@ namespace MemoryOptimizer
                 {
                     if (!startHidden)
                     {
-                        MessageBox.Show("内存优化器已经在运行。\r\n可以在任务栏通知区域找到它的图标。",
-                            "内存优化器", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(Loc.T("msg.running"), Loc.T("msg.errorTitle"),
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     return;
                 }
 
-                Settings settings = Settings.Load();
                 Application.Run(new MainForm(settings, startHidden, false));
             }
         }
@@ -63,8 +72,8 @@ namespace MemoryOptimizer
         {
             try
             {
-                MessageBox.Show("程序出现未处理的异常：\r\n" + e.Exception.Message,
-                    "内存优化器", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(Loc.F("msg.unhandled", e.Exception.Message), Loc.T("msg.errorTitle"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { }
         }
@@ -74,34 +83,31 @@ namespace MemoryOptimizer
             try
             {
                 Exception exception = e.ExceptionObject as Exception;
-                MessageBox.Show("程序出现未处理的异常：\r\n" + (exception == null ? "未知错误" : exception.Message),
-                    "内存优化器", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                string message = exception == null ? Loc.T("msg.unknown") : exception.Message;
+                MessageBox.Show(Loc.F("msg.unhandled", message), Loc.T("msg.errorTitle"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { }
         }
 
-        private static int RunCli(string[] args)
+        private static int RunCli(string[] args, Settings settings)
         {
             string outputPath = GetValue(args, "--out");
             if (string.IsNullOrEmpty(outputPath))
                 outputPath = Path.Combine(Settings.Directory, "cli-result.txt");
 
             StringBuilder report = new StringBuilder();
-            report.AppendLine("MemoryOptimizer CLI 自检报告");
-            report.AppendLine("时间: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-            report.AppendLine("管理员: " + Native.IsAdministrator());
-            report.AppendLine("配置文件: " + Settings.FilePath);
+            report.AppendLine(Loc.T("cli.title"));
+            report.AppendLine(Loc.T("cli.time") + ": " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            report.AppendLine(Loc.T("cli.admin") + ": " + Native.IsAdministrator());
+            report.AppendLine(Loc.T("cli.config") + ": " + Settings.FilePath);
             report.AppendLine();
 
             try
             {
                 MemorySnapshot before = MemorySnapshot.Capture(true);
-                report.AppendLine(string.Format("优化前: 已用 {0} / 共 {1} ({2:0.0}%), 可用 {3}, 系统缓存 {4}, 进程 {5}, 工作集 {6}",
-                    Fmt.Bytes(before.UsedPhys), Fmt.Bytes(before.TotalPhys), before.UsedPercent,
-                    Fmt.Bytes(before.AvailPhys), Fmt.Bytes(before.SystemCache), before.ProcessCount,
-                    Fmt.Bytes(before.WorkingSetSum)));
+                report.AppendLine(Loc.T("cli.before") + ": " + DescribeSnapshot(before));
 
-                Settings settings = Settings.Load();
                 OptimizeOptions options = new OptimizeOptions();
                 options.TrimWorkingSets = settings.TrimWorkingSets;
                 options.PurgeStandby = settings.PurgeStandby;
@@ -117,7 +123,7 @@ namespace MemoryOptimizer
                 if (result != null)
                 {
                     report.AppendLine();
-                    report.AppendLine("结果字段:");
+                    report.AppendLine(Loc.T("cli.fields") + ":");
                     report.AppendLine("  FreedBytes=" + result.FreedBytes);
                     report.AppendLine("  TrimmedProcesses=" + result.TrimmedProcesses);
                     report.AppendLine("  BlockedProcesses=" + result.BlockedProcesses);
@@ -131,14 +137,11 @@ namespace MemoryOptimizer
 
                 MemorySnapshot after = MemorySnapshot.Capture(true);
                 report.AppendLine();
-                report.AppendLine(string.Format("优化后: 已用 {0} / 共 {1} ({2:0.0}%), 可用 {3}, 系统缓存 {4}, 进程 {5}, 工作集 {6}",
-                    Fmt.Bytes(after.UsedPhys), Fmt.Bytes(after.TotalPhys), after.UsedPercent,
-                    Fmt.Bytes(after.AvailPhys), Fmt.Bytes(after.SystemCache), after.ProcessCount,
-                    Fmt.Bytes(after.WorkingSetSum)));
+                report.AppendLine(Loc.T("cli.after") + ": " + DescribeSnapshot(after));
             }
             catch (Exception ex)
             {
-                report.AppendLine("异常: " + ex);
+                report.AppendLine(Loc.T("cli.exception") + ": " + ex);
             }
 
             try
@@ -148,6 +151,52 @@ namespace MemoryOptimizer
             catch { }
 
             return 0;
+        }
+
+        private static string DescribeSnapshot(MemorySnapshot snapshot)
+        {
+            return Loc.F("cli.memory",
+                Fmt.Bytes(snapshot.UsedPhys), Fmt.Bytes(snapshot.TotalPhys), snapshot.UsedPercent,
+                Fmt.Bytes(snapshot.AvailPhys), Fmt.Bytes(snapshot.SystemCache), snapshot.ProcessCount,
+                Fmt.Bytes(snapshot.WorkingSetSum));
+        }
+
+        private static void RunShotLanguage(string path)
+        {
+            Native.SetDpiAware();
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            LanguageForm form = new LanguageForm(Loc.AutoCode);
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-5000, -5000);
+            form.ShowInTaskbar = false;
+
+            System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
+            timer.Interval = 900;
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                try
+                {
+                    form.Refresh();
+                    using (Bitmap bitmap = new Bitmap(form.Width, form.Height))
+                    {
+                        form.DrawToBitmap(bitmap, new Rectangle(0, 0, form.Width, form.Height));
+                        bitmap.Save(path, ImageFormat.Png);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    try { File.WriteAllText(path + ".error.txt", ex.ToString()); }
+                    catch { }
+                }
+                form.Close();
+            };
+
+            timer.Start();
+            form.ShowDialog();
+            timer.Dispose();
         }
 
         private static void RunShotDialog(string path)

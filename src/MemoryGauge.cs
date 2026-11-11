@@ -98,14 +98,14 @@ namespace MemoryOptimizer
                 new Point(percentSize.Width + (int)(2 * scale), percentSize.Height - unitSize.Height - (int)(5 * scale)),
                 usageColor);
 
-            string caption = "内存占用率";
+            string caption = Loc.T("gauge.caption");
             Size captionSize = Theme.Measure(graphics, caption, Theme.Caps);
             int captionX = percentSize.Width + unitSize.Width + (int)(14 * scale);
             Theme.Draw(graphics, caption, Theme.Caps,
                 new Point(captionX, percentSize.Height - captionSize.Height - (int)(7 * scale)), Theme.TextDim);
 
-            string availableText = "可用 " + Fmt.Bytes(snapshot.AvailPhys);
-            string totalText = "共 " + Fmt.Bytes(snapshot.TotalPhys);
+            string availableText = Loc.F("gauge.available", Fmt.Bytes(snapshot.AvailPhys));
+            string totalText = Loc.F("gauge.total", Fmt.Bytes(snapshot.TotalPhys));
             Size availableSize = Theme.Measure(graphics, availableText, Theme.ValueSmall);
             Size totalSize = Theme.Measure(graphics, totalText, Theme.Caps);
             int rightEdge = width;
@@ -146,11 +146,11 @@ namespace MemoryOptimizer
             int statsHeight = Height - statsTop;
             if (statsHeight < 24) return;
 
-            string[] captions = { "已用内存", "进程工作集", "系统缓存", "进程数" };
+            string[] captions = { Loc.T("gauge.used"), Loc.T("gauge.ws"), Loc.T("gauge.cache"), Loc.T("gauge.processes") };
             string[] values =
             {
                 Fmt.Bytes(snapshot.UsedPhys),
-                snapshot.WorkingSetSum >= 0 ? Fmt.Bytes(snapshot.WorkingSetSum) : "统计中…",
+                snapshot.WorkingSetSum >= 0 ? Fmt.Bytes(snapshot.WorkingSetSum) : Loc.T("gauge.measuring"),
                 Fmt.Bytes(snapshot.SystemCache),
                 snapshot.ProcessCount.ToString(CultureInfo.InvariantCulture)
             };
