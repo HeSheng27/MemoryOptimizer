@@ -76,35 +76,6 @@ Windows 没有「单个文件的 SmartScreen 白名单」，要让 `MemoryOptimi
 
 > 注意：属性对话框里的「解除锁定」只出现在**文件**（exe）的属性里，文件夹属性没有这一项；而且本目录构建出的 exe 本身不带网络来源标记（无 `Zone.Identifier`），所以这一步不适用。
 
-### 代码签名
-
-前提：**只有 CA（证书颁发机构）签发的代码签名证书才能让 SmartScreen 放行**。自签名证书只能把「发布者未知」变成你的名字，SmartScreen 的橙色拦截框仍然会弹；EV 证书立即建立信誉，OV 证书通常还要积累一段下载量。
-
-1. 拿到证书（`.pfx` + 密码，或硬件令牌 + 证书指纹）。
-2. 签名：
-
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\sign.ps1 -PfxPath D:\cert\codesign.pfx -Password 你的密码
-   ```
-
-   如果证书已装在当前用户证书存储里：
-
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\sign.ps1 -Thumbprint 证书指纹
-   ```
-
-3. 验证：
-
-   ```powershell
-   Get-AuthenticodeSignature .\MemoryOptimizer.exe | Format-List Status, StatusMessage, SignerCertificate
-   ```
-
-   `Status` 应为 `Valid`，`SignerCertificate.Subject` 应显示你的证书主题。
-
-4. 每次重新编译后都要重新签一次（签名不影响 exe 的功能，但会改变文件哈希）。
-
-`tools\sign.ps1` 会优先把 PFX 导入当前用户证书存储再签名（硬件令牌/不可导出私钥也能用 `-Thumbprint`），使用 SHA-256 摘要和 DigiCert 时间戳服务器（可用 `-TimestampServer` 换）。
-
 ## 配置文件
 
 优先保存在 **exe 同目录** 的 `settings.ini`（便携）；若该目录不可写（例如放在 `Program Files`），自动回退到 `%APPDATA%\MemoryOptimizer\settings.ini`。
